@@ -1,0 +1,15 @@
+{
+  "r2": 0.9996,
+  "mae": 0.1345,
+  "n_train": 913,
+  "n_test": 229,
+  "feature_importances": {
+    "cvss_score": 0.4657,
+    "is_network_exploitable": 0.5068,
+    "is_low_complexity": 0.0115,
+    "requires_no_privileges": 0.0086,
+    "requires_no_user_interaction": 0.006,
+    "severity_rank": 0.0002,
+    "has_fix": 0.0012
+  }
+}
