@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      # No Trivy and no Postgres needed here: the parser tests run
+      # against the real JSON files already committed in
+      # data/raw_trivy_scans/, and the API tests run against SQLite.
+      - run: pytest
+      - run: ruff check .
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up -d --build
+
+      - name: Wait for api
+        run: |
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8001/health && exit 0
+            sleep 3
+          done
+          echo "api never became healthy" >&2
+          exit 1
+
+      - name: Scan a real image through the API and verify ranked findings come back
+        run: |
+          set -e
+          resp=$(curl -sf -X POST http://localhost:8001/scans \
+            -H "Content-Type: application/json" -d '{"image":"node:14-slim"}')
+          echo "scan response: $resp"
+          scan_id=$(python3 -c "import sys,json; print(json.loads('''$resp''')['scan_id'])")
+
+          findings=$(curl -sf "http://localhost:8001/scans/$scan_id/findings")
+          count=$(echo "$findings" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+          echo "findings: $count"
+          if [ "$count" -lt 1 ]; then
+            echo "expected at least one finding for node:14-slim" >&2
+            exit 1
+          fi
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker compose logs
+
+  # Demonstrates the actual CI/CD gate use case this project exists for:
+  # installs Trivy directly on the runner (same install script the
+  # Dockerfile uses) and runs the gate CLI against a deliberately dated,
+  # vulnerable image (expect it to block) and a current minimal one
+  # (expect it to pass).
+  gate-demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e .
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin
+
+      - name: Gate should block a deliberately dated, vulnerable image
+        run: |
+          if python -m intellipatch.gate redis:6.0 --threshold 70; then
+            echo "expected the gate to block redis:6.0 but it passed" >&2
+            exit 1
+          fi
+          echo "gate correctly blocked redis:6.0"
+
+      - name: Gate should pass a current, minimal image
+        run: python -m intellipatch.gate alpine:3.21 --threshold 70
