@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: intellipatch
+      POSTGRES_PASSWORD: intellipatch
+      POSTGRES_DB: intellipatch
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U intellipatch"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: .
+    command: python -m intellipatch.migrate
+    environment:
+      INTELLIPATCH_DATABASE_URL: postgresql+psycopg://intellipatch:intellipatch@postgres:5432/intellipatch
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  api:
+    build: .
+    command: uvicorn intellipatch.services.api.main:app --host 0.0.0.0 --port 8000
+    environment:
+      INTELLIPATCH_DATABASE_URL: postgresql+psycopg://intellipatch:intellipatch@postgres:5432/intellipatch
+      # INTELLIPATCH_GOOGLE_API_KEY left unset on purpose -- see
+      # src/intellipatch/remediation/llm.py. Pass it at runtime to turn
+      # on the LLM-enhanced remediation step.
+    ports: ["8001:8000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: intellipatch
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus]

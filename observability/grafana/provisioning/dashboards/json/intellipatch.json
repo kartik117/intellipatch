@@ -1,0 +1,30 @@
+{
+  "title": "IntelliPatch",
+  "uid": "intellipatch-overview",
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Scans completed",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "intellipatch_scans_completed_total" }]
+    },
+    {
+      "id": 2,
+      "title": "Findings recorded / sec (by severity)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (severity) (rate(intellipatch_findings_by_severity_total[5m]))",
+          "legendFormat": "{{severity}}"
+        }
+      ]
+    }
+  ]
+}
